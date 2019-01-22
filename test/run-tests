@@ -42,6 +42,33 @@ def reset_transient_error_wait_time():
     transient_error_wait_time = TRANSIENT_ERROR_WAIT_TIME_DEFAULT
 
 
+make_httperror_counter = 0
+
+
+def make_httperror():
+    global make_httperror_counter
+
+    if not make_httperror_counter:
+        return
+
+    make_httperror_counter = int(make_httperror_counter) - 1
+
+    status = random.choice([(403, "Forbidden"), (503, "Service Unavailable")])
+
+    x = requests.Response()
+    x.status_code = status[0]
+    x.reason = status[1]
+    x.headers.update(
+        {
+            "Status": "403 Forbidden",
+            "X-RateLimit-Limit": "5000",
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": str(int(time.time()) + 10),
+        }
+    )
+    raise requests.exceptions.HTTPError(response=x)
+
+
 def sighandler_exit(signo, frame):
     print(f"Received {signal.Signals(signo).name}, exiting...", file=sys.stderr)
     sys.exit(0)
@@ -96,6 +123,7 @@ class Session(requests.Session):
         self.timeout = timeout
 
     def post(self, path, json_, check=True):
+        make_httperror()
         r = super().post(f"{self.host}/{path}", json=json_, timeout=self.timeout)
         if check:
             r.raise_for_status()
@@ -104,6 +132,7 @@ class Session(requests.Session):
         return r
 
     def get(self, path, check=True):
+        make_httperror()
         r = super().get(f"{self.host}/{path}", timeout=self.timeout)
         if check:
             r.raise_for_status()
@@ -665,6 +694,8 @@ def handle_task(gh, args, config, task, dry_run=False):
             shutil.rmtree(workdir)
 
     finally:
+        global make_httperror_counter
+        make_httperror_counter = 1
         while not dry_run:
             try:
                 gh.post(
@@ -755,6 +786,9 @@ def main():
 
     printed_waiting = False
 
+    global make_httperror_counter
+    make_httperror_counter = 1
+
     for pull_request in args.pull_request:
         # supports to specify the PR with full URLs or just the path
         parsed_url = urllib.parse.urlparse(pull_request)
@@ -790,10 +824,12 @@ def main():
                 if not printed_waiting:
                     print(">>> No tasks. Waiting.")
                     printed_waiting = True
-                time.sleep(600)
+                make_httperror_counter = 3
+                time.sleep(60)
                 continue
 
             handle_task(gh, args, config, task, args.dry_run)
+            make_httperror_counter = 1
         except requests.exceptions.HTTPError as err:
             if not handle_transient_httperrors(err):
                 raise
