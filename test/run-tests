@@ -60,10 +60,11 @@ def make_httperror():
     x.reason = status[1]
     x.headers.update(
         {
+            "Date": time.strftime("%a, %d %b %Y %H:%M:%S %Z", time.gmtime()),
             "Status": "403 Forbidden",
             "X-RateLimit-Limit": "5000",
             "X-RateLimit-Remaining": "0",
-            "X-RateLimit-Reset": str(int(time.time()) + 10),
+            "X-RateLimit-Reset": str(int(time.time()) + random.randint(20,40)),
         }
     )
     raise requests.exceptions.HTTPError(response=x)
